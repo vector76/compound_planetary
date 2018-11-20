@@ -1,0 +1,231 @@
+<html>
+<head>
+<title>Compound Planetary Gear Calculator</title>
+</head>
+
+<body>
+<div>
+<button type="button" id="rminus">-</button>
+<input type="text" size="6" id="maxring" value="40">
+<button type="button" id="rplus">+</button>
+Maximum teeth on rings<br/>
+
+<button type="button" id="pminus">-</button>
+<input type="text" size="6" id="minplanet" value="8">
+<button type="button" id="pplus">+</button>
+Minimum teeth on planets or sun<br/>
+
+Ratio minimum and maximum: <input type="text" size="6" id="minratio" value="10.0">
+<input type="text" size="6" id="maxratio" value="15.0">
+<br/>
+
+<button type="button" id="calculate">Count solutions</button>
+<br/>
+<button type="button" id="calc_show">Show solutions</button>
+</div>
+<br/>
+
+<div id="planet_to_rings"></div>
+<br/>
+
+<div id="total_solutions"></div>
+<br/>
+<div id="solution_list"></div>
+<br/>
+<div id="debug"></div>
+
+<script>
+function sort_unique(arr) {
+    if (arr.length === 0) return arr;
+    arr = arr.sort(function (a, b) { return a[0] - b[0]; });
+    var ret = [arr[0]];
+    var lastret = 0;
+    for (var i = 1; i < arr.length; i++) {
+        if (ret[lastret][0] != arr[i][0]) {  // distinct from last element in return list
+            ret.push(arr[i]);
+            lastret++;
+        }
+        else {
+            // matches last element of return list, keep the one with larger second element
+            if (ret[lastret][1] < arr[i][1]) {
+                ret[lastret] = arr[i];
+            }
+        }
+    }
+    return ret;
+}
+
+
+function find_between(ypru, valmin, valmax) {
+    if (ypru[0][0] > valmax || ypru[ypru.length-1][0] < valmin) {
+        // no overlap, return special value
+        return [0, -1];
+    }
+    
+    // search for the first index where value is >= valmin
+    var first_gt = -1;  // first index is strictly greater than this
+    var first_le = ypru.length-1; // first index is less than or equal to this
+    while (first_le > first_gt+1) {
+        var first_mid = Math.floor((first_le + first_gt)/2);  // some say x | 0 is faster than Math.floor(x) but this is more clear
+        if (ypru[first_mid][0] < valmin) {
+            first_gt = first_mid;
+        }
+        else {
+            first_le = first_mid;
+        }
+    }
+    var first = first_gt + 1;  // also equals first_le
+    
+    // search for last index where value is <= valmax
+    var last_lt = ypru.length;
+    var last_ge = 0;
+    while (last_ge < last_lt - 1) {
+        var last_mid = Math.floor((last_lt + last_ge)/2);
+        if (ypru[last_mid][0] > valmax) {
+            last_lt = last_mid;
+        }
+        else {
+            last_ge = last_mid;
+        }
+    }
+    var last = last_lt - 1;  // also equals last_ge
+    return [first, last];
+}
+
+
+function count_between(ypru, valmin, valmax) {
+    var first_last = find_between(ypru, valmin, valmax);
+    return first_last[1] - first_last[0] + 1;
+}
+
+
+function gcd(a, b) {
+    if (!b) {
+        return a;
+    }
+    return gcd(b, a%b);
+}
+
+
+function calculate(doshow) {
+    var rmax = parseInt(document.getElementById('maxring').value);
+    var pmin = parseInt(document.getElementById('minplanet').value);
+    var minratio = parseFloat(document.getElementById('minratio').value);
+    var maxratio = parseFloat(document.getElementById('maxratio').value);
+
+    // if minimum and maximum are backwards, then switch them
+    if (minratio > maxratio) {
+        tmp = minratio;
+        minratio = maxratio;
+        maxratio = tmp;
+        document.getElementById('minratio').value = minratio;
+        document.getElementById('maxratio').value = maxratio;
+    }
+    
+    // if minimum and maximum are equal, then fudge a little to avoid failing due to floating point roundoff errors
+    if (minratio == maxratio) {
+        minratio -= 0.0001;
+        maxratio += 0.0001;
+        document.getElementById('minratio').value = minratio;
+        document.getElementById('maxratio').value = maxratio;
+    }
+    
+    var yprlist = [];
+    
+    
+    var ylist = [];
+    var prlist = [];
+    // all possible ring gear sizes
+    for (var r=pmin*3; r <= rmax; r++) {
+        // for a given ring size, all possible planet sizes
+        for (var p=pmin; p*2 <= r-pmin; p++) {
+            ylist.push(0.5 - p/r);
+            prlist.push([p, r]);
+            yprlist.push([0.5 - p/r, p, r]);
+        }
+    }
+    
+    var ypru = sort_unique(yprlist);  // y-ratio, planet teeth, ring teeth, sorted and unique
+    var ymin = ypru[0][0];
+    var ymax = ypru[ypru.length-1][0];
+
+    document.getElementById('planet_to_rings').innerHTML = ypru.length + " permitted planet-to-ring ratios";
+    document.getElementById('solution_list').innerHTML = "";
+    
+    var tot_solutions = 0;
+    var solution_list = [];
+    // for each choice of y1, determine what y2 would need to be for ratio minimum and maximum
+    for (var i=0; i < ypru.length; i++) {
+        var y1 = ypru[i][0];
+        var y2_rmin = (0.25-y1*y1)/(y1*minratio) + y1;  // upper limit of y2
+        var y2_rmax = (0.25-y1*y1)/(y1*maxratio) + y1;  // lower limit of y2
+        
+        var num_sols = 0;
+        var first_last = find_between(ypru, y2_rmax, y2_rmin);
+        if (y2_rmin >= ymin && y2_rmax <= ymax) {
+            // number of solutions
+            num_sols = first_last[1] - first_last[0] + 1;
+            tot_solutions += num_sols;
+        }
+        
+        if (num_sols > 0 && doshow) {
+            var p1 = ypru[i][1];  // driven planet teeth
+            var r1 = ypru[i][2];  // driven ring teeth
+            var s1 = r1 - 2*p1;   // driven sun teeth
+            var x1 = p1/r1;
+            
+            for (var j=first_last[0]; j <= first_last[1]; j++) {
+              var p2 = ypru[j][1];  // driving planet teeth
+              var r2 = ypru[j][2];  // driving ring teeth
+              var x2 = p2/r2;
+              //var outr = 1/((0.5-x1)*((1-x2)/(1-x1) - x2/x1));
+              
+              var num = 2*r2*p1*(r1-p1);
+              var den = (r1-2*p1)*(p1*r2-p2*r1);
+              var outr = num/den;
+              var common = Math.abs(gcd(num, den));
+              var neg = Math.sign(outr);
+              solution_list.push([outr, s1, p1, r1, p2, r2, neg*Math.abs(num)/common + " : " + Math.abs(den)/common]);
+            }
+            //document.getElementById('solution_list').innerHTML += y1 + ": " + y2_rmin + ", " + y2_rmax + ", " + num_sols + " gear ratios" + " (" + first_last[0] + ", " + first_last[1] + ")<br/>";
+        }
+    }
+    document.getElementById('total_solutions').innerHTML = "Total solutions: " + tot_solutions;
+    if (doshow) {
+      solution_su = sort_unique(solution_list);
+      solution_rows = [];
+      for (var i=0; i < solution_su.length; i++) {
+        solution_rows.push("<td>" + solution_su[i].join("</td><td>") + "</td>");
+      }
+      document.getElementById('solution_list').innerHTML = "<table border=1><th>Ratio</th><th>Sun 1</th><th>Planet 1</th><th>Ring 1</th><th>Planet 2</th><th>Ring 2</th><th>Exact ratio</th> <tr>" + solution_rows.join("</tr><tr>") + "</tr></table>";
+    }
+}
+
+
+document.getElementById('calculate').addEventListener("click", function() { calculate(false); } );
+
+document.getElementById('calc_show').addEventListener("click", function() { calculate(true); } );
+
+document.getElementById('rplus').addEventListener("click", function() {
+    document.getElementById('maxring').value = 1 + parseInt(document.getElementById('maxring').value);
+    calculate(false);
+});
+
+document.getElementById('rminus').addEventListener("click", function() {
+    document.getElementById('maxring').value = -1 + parseInt(document.getElementById('maxring').value);
+    calculate(false);
+});
+
+document.getElementById('pplus').addEventListener("click", function() {
+    document.getElementById('minplanet').value = 1 + parseInt(document.getElementById('minplanet').value);
+    calculate(false);
+});
+
+document.getElementById('pminus').addEventListener("click", function() {
+    document.getElementById('minplanet').value = -1 + parseInt(document.getElementById('minplanet').value);
+    calculate(false);
+});
+
+</script>
+</body>
+</html>
